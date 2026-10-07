@@ -1,6 +1,7 @@
 // Reads a Meowdoku board out of a screenshot.
 // Input: ImageData-like { data, width, height }.
-// Output: { n, grid, colors } where grid[r][c] is a region id and colors[id] is a hex string,
+// Output: { n, grid, colors, cats } where grid[r][c] is a region id and colors[id] is a hex string
+// and cats lists [row, col] of cats already placed,
 // or throws an Error with a human-readable message.
 
 function isCellPixel(r, g, b) {
@@ -88,22 +89,33 @@ function readBoard(img) {
     colRuns = Array.from({ length: n }, (_, i) => ({ start: Math.round(x0 + i * cw), len: Math.round(cw) }));
   }
 
-  // Sample the middle of each cell, ignoring cat/X marks drawn on top.
-  const samples = [];
+  // Sample each cell. Placed cats cover the middle, so read the color from
+  // the colored pixels across the whole cell (median ignores cat/X marks).
+  const samples = [], cats = [];
   for (let r = 0; r < n; r++) {
     for (let c = 0; c < n; c++) {
-      const cy = rowRuns[r].start + rowRuns[r].len / 2, cx = colRuns[c].start + colRuns[c].len / 2;
-      const ry = Math.max(1, Math.floor(rowRuns[r].len * 0.3)), rx = Math.max(1, Math.floor(colRuns[c].len * 0.3));
-      let sum = [0, 0, 0], k = 0, all = [0, 0, 0], ka = 0;
-      for (let y = Math.round(cy - ry); y <= cy + ry; y++) {
-        for (let x = Math.round(cx - rx); x <= cx + rx; x++) {
+      const top = rowRuns[r].start, left = colRuns[c].start;
+      const ch = rowRuns[r].len, cw = colRuns[c].len;
+      const colored = [[], [], []];
+      let catPixels = 0, center = 0;
+      for (let y = Math.round(top + ch * 0.08); y < top + ch * 0.92; y++) {
+        for (let x = Math.round(left + cw * 0.08); x < left + cw * 0.92; x++) {
           const i = (y * w + x) * 4;
-          const px = [data[i], data[i + 1], data[i + 2]];
-          all = all.map((v, j) => v + px[j]); ka++;
-          if (mask[y * w + x]) { sum = sum.map((v, j) => v + px[j]); k++; }
+          const R = data[i], G = data[i + 1], B = data[i + 2];
+          if (mask[y * w + x]) { colored[0].push(R); colored[1].push(G); colored[2].push(B); }
+          const inCenter = Math.abs(y - (top + ch / 2)) < ch * 0.25 && Math.abs(x - (left + cw / 2)) < cw * 0.25;
+          if (inCenter) {
+            center++;
+            const max = Math.max(R, G, B), min = Math.min(R, G, B);
+            // Cat heads are black and white fur.
+            if (max < 70 || (min > 200 && max - min < 30)) catPixels++;
+          }
         }
       }
-      const rgb = k > ka * 0.2 ? sum.map(v => v / k) : all.map(v => v / ka);
+      if (catPixels > center * 0.3) cats.push([r, c]);
+      if (!colored[0].length) throw new Error(`Couldn't read the color of row ${r + 1}, column ${c + 1}.`);
+      const median = arr => { arr.sort((a, b) => a - b); return arr[arr.length >> 1]; };
+      const rgb = colored.map(median);
       samples.push({ r, c, rgb, lab: rgbToLab(rgb) });
     }
   }
@@ -132,6 +144,7 @@ function readBoard(img) {
     n,
     grid,
     colors: groups.map(g => toHex(g.rgb)),
+    cats,
     // A big final merge means two genuinely different colors got lumped together.
     suspicious: lastMerge > 12,
   };

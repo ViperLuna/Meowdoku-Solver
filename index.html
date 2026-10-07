@@ -51,6 +51,8 @@
     display: flex; align-items: center; justify-content: center;
     font-size: clamp(12px, 5vw, 28px); line-height: 1;
   }
+  .cell.answer { box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.85); }
+  .cell.wrong { box-shadow: inset 0 0 0 4px #e0312b; }
   .help { color: var(--muted); font-size: 0.85rem; line-height: 1.45; }
   .help b { color: var(--text); }
 </style>
@@ -74,12 +76,15 @@
     <div id="board"></div>
     <div class="row" style="margin-top: 12px">
       <button id="solve" class="primary">Solve</button>
-      <button id="hide">Hide cats</button>
+      <button id="hint">Hint</button>
+      <button id="hide">Hide answer</button>
     </div>
   </div>
 
   <div class="card help">
-    <b>Screenshot:</b> grab a fresh board (before placing any cats) and upload it. The board size is detected automatically.<br>
+    <b>Screenshot:</b> upload a board, fresh or half done. The size and any cats you've placed are picked up automatically.<br>
+    <b>Hint:</b> reveals one cat at a time. <b>Solve</b> shows them all. Your cats that can't be right get a red outline.<br>
+    <b>Your cats:</b> use the 🐈‍⬛ tool to place or remove one.<br>
     <b>Fix mistakes:</b> pick a color above, then tap or drag across cells to paint them.<br>
     <b>Manual:</b> choose a size, then paint every region yourself.
   </div>

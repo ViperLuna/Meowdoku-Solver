@@ -2,7 +2,8 @@
 // with no two cats touching (diagonals included).
 // grid: n x n array of region ids (0..n-1). Returns up to `limit` solutions,
 // each an array where solution[row] = column of that row's cat.
-function solveMeowdoku(grid, limit = 2) {
+// fixed (optional): fixed[row] = column a cat must be in, or -1 for free.
+function solveMeowdoku(grid, limit = 2, fixed = null) {
   const n = grid.length;
   const solutions = [];
   const cols = new Array(n);
@@ -30,6 +31,7 @@ function solveMeowdoku(grid, limit = 2) {
     if (row === n) { solutions.push(cols.slice()); return; }
     if (!regionStillPossible(row, usedCols, usedRegs)) return;
     for (let c = 0; c < n; c++) {
+      if (fixed && fixed[row] >= 0 && fixed[row] !== c) continue;
       if (usedCols & (1 << c)) continue;
       const reg = grid[row][c];
       if (usedRegs & (1 << reg)) continue;
