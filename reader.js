@@ -66,7 +66,8 @@ function readBoard(img) {
   for (let y = 0; y < h; y++) {
     let count = 0;
     for (let x = 0; x < w; x++) count += mask[y * w + x];
-    rowProfile.push(count > w * 0.45);
+    // Low bar: X marks and cats eat into a row's color.
+    rowProfile.push(count > w * 0.25);
   }
   const rowRuns = bestChain(runsOf(rowProfile).filter(r => r.len >= 6));
   const n = rowRuns.length;
@@ -78,7 +79,7 @@ function readBoard(img) {
   for (let x = 0; x < w; x++) {
     let count = 0;
     for (let y = y0; y <= y1; y++) count += mask[y * w + x];
-    colProfile.push(count > span * 0.45);
+    colProfile.push(count > span * 0.25);
   }
   let colRuns = bestChain(runsOf(colProfile).filter(r => r.len >= 6));
   if (colRuns.length !== n) {
@@ -97,7 +98,7 @@ function readBoard(img) {
       const top = rowRuns[r].start, left = colRuns[c].start;
       const ch = rowRuns[r].len, cw = colRuns[c].len;
       const colored = [[], [], []];
-      let catPixels = 0, center = 0;
+      let dark = 0, light = 0, center = 0;
       for (let y = Math.round(top + ch * 0.08); y < top + ch * 0.92; y++) {
         for (let x = Math.round(left + cw * 0.08); x < left + cw * 0.92; x++) {
           const i = (y * w + x) * 4;
@@ -107,12 +108,13 @@ function readBoard(img) {
           if (inCenter) {
             center++;
             const max = Math.max(R, G, B), min = Math.min(R, G, B);
-            // Cat heads are black and white fur.
-            if (max < 70 || (min > 200 && max - min < 30)) catPixels++;
+            if (max < 70) dark++;
+            else if (min > 200 && max - min < 30) light++;
           }
         }
       }
-      if (catPixels > center * 0.3) cats.push([r, c]);
+      // Cat heads are black and white fur; white X marks have no black.
+      if (dark > center * 0.08 && dark + light > center * 0.3) cats.push([r, c]);
       if (!colored[0].length) throw new Error(`Couldn't read the color of row ${r + 1}, column ${c + 1}.`);
       const median = arr => { arr.sort((a, b) => a - b); return arr[arr.length >> 1]; };
       const rgb = colored.map(median);
