@@ -9,7 +9,6 @@ const state = {
   placed: new Set(),    // "r,c" of cats you've already put down
   solution: null,       // solution[row] = col
   shown: new Set(),     // "r,c" of solution cats revealed so far
-  wrong: new Set(),     // "r,c" of your cats that can't be right
 };
 const CAT_TOOL = 'cat';
 const key = (r, c) => `${r},${c}`;
@@ -25,7 +24,6 @@ function setStatus(msg, bad = false) {
 function resetAnswer() {
   state.solution = null;
   state.shown.clear();
-  state.wrong.clear();
 }
 
 function newBoard(n) {
@@ -60,7 +58,7 @@ function renderPalette() {
 
 function cellContent(r, c) {
   const k = key(r, c);
-  if (state.placed.has(k)) return { text: '🐈‍⬛', cls: state.wrong.has(k) ? 'wrong' : '' };
+  if (state.placed.has(k)) return { text: '🐈‍⬛', cls: '' };
   if (state.solution && state.solution[r] === c && state.shown.has(k)) return { text: '🐱', cls: 'answer' };
   return { text: '', cls: '' };
 }
@@ -118,7 +116,8 @@ window.addEventListener('pointermove', e => { if (painting) paintAt(e.clientX, e
 window.addEventListener('pointerup', () => { painting = false; });
 window.addEventListener('pointercancel', () => { painting = false; });
 
-// Works out the answer (respecting your cats when they fit). Returns false and
+// Works out the answer around your cats. The game only accepts correct cats,
+// so if they don't fit, a color was misread. Returns false and
 // sets a status message when it can't.
 function computeSolution() {
   const { n, grid } = state;
@@ -138,22 +137,12 @@ function computeSolution() {
     fixed[r] = c;
   }
 
-  let solutions = fixable ? solveMeowdoku(regionGrid, 2, fixed) : [];
-  state.wrong.clear();
-  if (!solutions.length && state.placed.size) {
-    // Your cats don't fit any answer: solve fresh and point out the bad ones.
-    solutions = solveMeowdoku(regionGrid, 2);
-    if (solutions.length) {
-      for (const k of state.placed) {
-        const [r, c] = k.split(',').map(Number);
-        if (solutions[0][r] !== c) state.wrong.add(k);
-      }
-    }
-  }
+  const solutions = fixable ? solveMeowdoku(regionGrid, 2, fixed) : [];
   if (!solutions.length) {
     state.solution = null;
     renderBoard();
-    return setStatus('No solution. Double-check the colors.', true), false;
+    const why = state.placed.size ? "Your cats don't fit this board, so a color was probably misread." : 'No solution.';
+    return setStatus(`${why} Double-check the colors.`, true), false;
   }
   state.solution = solutions[0];
   state.unique = solutions.length === 1;
@@ -161,10 +150,6 @@ function computeSolution() {
 }
 
 function answerStatus(prefix) {
-  if (state.wrong.size) {
-    const which = state.wrong.size === 1 ? 'One of your cats is' : `${state.wrong.size} of your cats are`;
-    return setStatus(`${which} in the wrong spot (marked red).`, true);
-  }
   setStatus(state.unique ? prefix : `${prefix} This board has more than one answer though, so a color may be misread.`, !state.unique);
 }
 
