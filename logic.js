@@ -4,7 +4,7 @@
 // Returns one of:
 //   { cats, xs, focus, text }  a move: cells to put cats/X's on, cells the reasoning is about
 //   { done: true }             every cat is placed
-//   { broken: text }           the marks contradict the rules
+//   { broken: text, focus }    the marks contradict the rules (focus: where)
 //   { stuck: true }            no logical move found
 const OPEN = 0, CAT = 1, X = 2;
 
@@ -32,14 +32,14 @@ function nextLogicalStep(regions, marks, regionName) {
       open: g.cells.filter(open),
     }));
     for (const g of info) {
-      if (g.cats.length > 1) return { broken: `${cap(g.label)} has two cats.` };
-      if (!g.cats.length && !g.open.length) return { broken: `${cap(g.label)} has no spot left for a cat.` };
+      if (g.cats.length > 1) return { broken: `${cap(g.label)} has two cats.`, focus: g.cells };
+      if (!g.cats.length && !g.open.length) return { broken: `${cap(g.label)} has no spot left for a cat.`, focus: g.cells };
     }
     const catCells = cells.filter(([r, c]) => m[r][c] === CAT);
     for (const a of catCells)
       for (const b of catCells)
         if (a !== b && Math.abs(a[0] - b[0]) <= 1 && Math.abs(a[1] - b[1]) <= 1)
-          return { broken: 'Two cats are touching.' };
+          return { broken: 'Two cats are touching.', focus: [a, b] };
     return { isOpen: open, openCells: cells.filter(open), catCells, needy: info.filter(g => !g.cats.length) };
   }
 
@@ -162,3 +162,19 @@ function* combinations(arr, k, start = 0, picked = []) {
 }
 
 if (typeof module !== 'undefined') module.exports = { nextLogicalStep, OPEN, CAT, X };
+
+// Assume the marks are right and keep making logical moves until the board
+// breaks. Returns { broken, focus, moves } or null if it never breaks.
+function followUntilBroken(regions, marks, regionName) {
+  const m = marks.map(row => row.slice());
+  for (let moves = 0; moves < regions.length ** 2; moves++) {
+    const step = nextLogicalStep(regions, m, regionName);
+    if (step.broken) return { ...step, moves };
+    if (step.done || step.stuck) return null;
+    for (const [r, c] of step.cats || []) m[r][c] = CAT;
+    for (const [r, c] of step.xs || []) m[r][c] = X;
+  }
+  return null;
+}
+
+if (typeof module !== 'undefined') module.exports.followUntilBroken = followUntilBroken;

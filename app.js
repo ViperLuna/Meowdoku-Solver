@@ -13,6 +13,7 @@ const state = {
   wrong: new Set(),     // X's that sit on a cat square
   solution: null,       // solution[row] = col
   showAnswer: false,
+  nudge: { sig: '', level: 0 },  // how far the wrong-X clues have gone
 };
 const CAT_TOOL = 'cat', X_TOOL = 'x';
 const key = (r, c) => `${r},${c}`;
@@ -216,36 +217,74 @@ function computeSolution() {
   return true;
 }
 
-// The game only checks cats, so a white X can be wrong. Check every X against
-// the answer (worked out from the colors and your cats) before anything else.
-// Wrong X's get removed here and outlined red. Returns a message, or ''.
-function checkXs() {
+// The game only checks cats, so a white X can be wrong. Finds X's sitting on
+// a cat square of the answer (worked out from the colors and your cats).
+function findBadXs() {
   const { marks, n } = state;
-  if (!marks.flat().includes(X) || !computeSolution() || !state.unique) return '';
+  if (!marks.flat().includes(X) || !computeSolution() || !state.unique) return [];
   const bad = [];
-  for (let r = 0; r < n; r++) {
-    const c = state.solution[r];
-    if (marks[r][c] === X) bad.push([r, c]);
-  }
-  if (!bad.length) return '';
+  for (let r = 0; r < n; r++) if (marks[r][state.solution[r]] === X) bad.push([r, state.solution[r]]);
+  return bad;
+}
+
+function removeBadXs(bad) {
   for (const [r, c] of bad) {
-    marks[r][c] = OPEN;
+    state.marks[r][c] = OPEN;
     state.hintKeys.delete(key(r, c));
     state.wrong.add(key(r, c));
   }
-  const where = bad.map(([r, c]) => `row ${r + 1}, column ${c + 1}`).join(' and ');
-  return bad.length === 1
-    ? `Hold up: your X at ${where} is wrong. That's actually where a cat goes. I took it off here (red outline), so remove it in the game too.`
-    : `Hold up: your X's at ${where} are wrong. Those are cat squares. I took them off here (red outlines), so remove them in the game too.`;
+}
+
+// Wrong X's get clues that escalate with each tap instead of the answer:
+// 1) where the logic breaks if you trust your X's, 2) which color the bad X
+// is in, 3) the X itself.
+function nudgeBadXs(bad, board, names) {
+  const sig = bad.map(([r, c]) => key(r, c)).join('|');
+  if (state.nudge.sig !== sig) state.nudge = { sig, level: 0 };
+  let level = ++state.nudge.level;
+  const many = bad.length > 1;
+  const some = many ? `${bad.length} of your X's are` : "One of your X's is";
+
+  if (level === 1) {
+    const broke = followUntilBroken(board.regions, state.marks, id => names[id]);
+    if (broke) {
+      for (const [r, c] of broke.focus) state.focus.add(key(r, c));
+      const when = broke.moves ? `after ${broke.moves} move${broke.moves > 1 ? 's' : ''}` : 'right away';
+      return setStatus(`${some} wrong. Trust your X's and follow the logic, and ${when} ${lower(broke.broken)} Tap Hint again for a bigger clue.`, true);
+    }
+    level = state.nudge.level = 2;
+  }
+  if (level === 2) {
+    // Narrow it to the row, column or color with the fewest X's, keeping at
+    // least two so the clue doesn't point straight at it.
+    const [r, c] = bad[0];
+    const { n, marks } = state;
+    const cellsOf = test => { const out = []; for (let rr = 0; rr < n; rr++) for (let cc = 0; cc < n; cc++) if (test(rr, cc)) out.push([rr, cc]); return out; };
+    const options = [
+      { label: `row ${r + 1}`, cells: cellsOf(rr => rr === r) },
+      { label: `column ${c + 1}`, cells: cellsOf((rr, cc) => cc === c) },
+      { label: names[board.regions[r][c]], cells: cellsOf((rr, cc) => board.regions[rr][cc] === board.regions[r][c]) },
+    ].map(o => ({ ...o, xs: o.cells.filter(([rr, cc]) => marks[rr][cc] === X).length }));
+    const fair = options.filter(o => o.xs >= 2).sort((a, b) => a.xs - b.xs);
+    const pick = fair[0] || options.sort((a, b) => b.xs - a.xs)[0];
+    for (const [rr, cc] of pick.cells) state.focus.add(key(rr, cc));
+    return setStatus(`${some} wrong. ${many ? 'One of them' : 'It'} is somewhere in ${pick.label} (outlined), which has ${pick.xs} X's. Tap Hint again to see exactly which.`, true);
+  }
+  removeBadXs(bad);
+  state.nudge = { sig: '', level: 0 };
+  setStatus(many
+    ? "These are the wrong X's (red outlines). I took them off here, so remove them in the game too."
+    : "This is the wrong X (red outline). I took it off here, so remove it in the game too.", true);
 }
 
 function solve() {
   if (!computeSolution()) return;
   clearHighlights();
-  const xWarning = checkXs();
+  const bad = findBadXs();
+  removeBadXs(bad);
   state.showAnswer = true;
   renderBoard();
-  if (xWarning) return setStatus(xWarning, true);
+  if (bad.length) return setStatus(`Solved. Heads up: ${bad.length === 1 ? 'one of your X\'s was' : `${bad.length} of your X's were`} on a cat square (red outline).`, true);
   setStatus(state.unique ? 'Solved! 😼' : 'Solved, but this board has more than one answer, so a color may be misread.', !state.unique);
 }
 
@@ -264,8 +303,8 @@ function hint() {
   const names = colorNames(board.ids);
   clearHighlights();
   state.showAnswer = false;
-  const xWarning = checkXs();
-  if (xWarning) { renderBoard(); return setStatus(xWarning, true); }
+  const bad = findBadXs();
+  if (bad.length) { nudgeBadXs(bad, board, names); return renderBoard(); }
   const step = nextLogicalStep(board.regions, state.marks, id => names[id]);
 
   if (step.done) {
@@ -324,9 +363,9 @@ async function loadScreenshot(file) {
     state.hintKeys.clear();
     resetAnswer();
     sizeEl.value = result.n;
-    const xWarning = checkXs();
+    const bad = findBadXs();
     render();
-    if (xWarning) return setStatus(xWarning, true);
+    if (bad.length) return setStatus(`Heads up: ${bad.length === 1 ? "one of your X's is" : `${bad.length} of your X's are`} wrong. Tap Hint for a clue.`, true);
     const found = [];
     if (result.cats.length) found.push(`${result.cats.length} cat${result.cats.length > 1 ? 's' : ''}`);
     if (result.xs.length) found.push(`${result.xs.length} X${result.xs.length > 1 ? "'s" : ''}`);
