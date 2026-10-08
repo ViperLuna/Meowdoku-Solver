@@ -114,9 +114,10 @@ function nextLogicalStep(regions, marks, regionName) {
   const one = squeeze(1);
   if (one) return one;
 
-  // Down to 2 or 3 spots: whichever one gets the cat, any square that all of
+  // Down to a few spots: whichever one gets the cat, any square that all of
   // them would knock out (touching, or sharing a row, column or color) is dead.
-  for (const size of [2, 3]) {
+  // Fewest spots first, since those are the easiest to see.
+  for (let size = 2; size <= n; size++) {
     for (const g of needy) {
       if (g.open.length !== size) continue;
       const killedBy = g.open.map(spot => new Set(blockedBy(spot).map(([r, c]) => key2(r, c))));
