@@ -114,6 +114,23 @@ function nextLogicalStep(regions, marks, regionName) {
   const one = squeeze(1);
   if (one) return one;
 
+  // Down to 2 or 3 spots: whichever one gets the cat, any square that all of
+  // them would knock out (touching, or sharing a row, column or color) is dead.
+  for (const size of [2, 3]) {
+    for (const g of needy) {
+      if (g.open.length !== size) continue;
+      const killedBy = g.open.map(spot => new Set(blockedBy(spot).map(([r, c]) => key2(r, c))));
+      const xs = open.filter(([r, c]) =>
+        !g.open.some(([r2, c2]) => r2 === r && c2 === c) && killedBy.every(set => set.has(key2(r, c))));
+      if (!xs.length) continue;
+      const either = size === 2 ? 'either one' : 'any of them';
+      return {
+        xs, focus: g.open,
+        text: `${cap(g.label)} is down to ${size} spots. A cat in ${either} would knock out the squares around ${size === 2 ? 'both' : 'all of them'}, so those are out.`,
+      };
+    }
+  }
+
   // Touch check: a cat here would wipe out every open square some group has left.
   for (const cell of open) {
     const blocked = new Set(blockedBy(cell).map(([r, c]) => key2(r, c)));
