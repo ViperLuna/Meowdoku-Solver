@@ -6,11 +6,14 @@ const DEFAULT_COLORS = [
 
 const state = {
   n: 9, grid: [], colors: DEFAULT_COLORS.slice(0, 9), selected: 0,
-  placed: new Set(),    // "r,c" of cats you've already put down
+  marks: [],            // marks[r][c]: OPEN, CAT or X
+  hintKeys: new Set(),  // "r,c" of marks the Hint button added
+  focus: new Set(),     // squares the latest hint is talking about
+  fresh: new Set(),     // squares the latest hint just marked
   solution: null,       // solution[row] = col
-  shown: new Set(),     // "r,c" of solution cats revealed so far
+  showAnswer: false,
 };
-const CAT_TOOL = 'cat';
+const CAT_TOOL = 'cat', X_TOOL = 'x';
 const key = (r, c) => `${r},${c}`;
 
 const $ = id => document.getElementById(id);
@@ -21,9 +24,19 @@ function setStatus(msg, bad = false) {
   statusEl.className = bad ? 'bad' : '';
 }
 
+function clearHighlights() {
+  state.focus.clear();
+  state.fresh.clear();
+}
+
 function resetAnswer() {
   state.solution = null;
-  state.shown.clear();
+  state.showAnswer = false;
+  clearHighlights();
+}
+
+function emptyMarks(n) {
+  return Array.from({ length: n }, () => new Array(n).fill(OPEN));
 }
 
 function newBoard(n) {
@@ -31,10 +44,48 @@ function newBoard(n) {
   state.grid = Array.from({ length: n }, () => new Array(n).fill(-1));
   state.colors = DEFAULT_COLORS.slice(0, n);
   state.selected = 0;
-  state.placed.clear();
+  state.marks = emptyMarks(n);
+  state.hintKeys.clear();
   resetAnswer();
   sizeEl.value = n;
   render();
+}
+
+// Rough everyday names for colors, used in hint explanations.
+function colorName(hex) {
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2;
+  const s = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1));
+  let h = 0;
+  if (max !== min) {
+    if (max === r) h = 60 * (((g - b) / (max - min)) % 6);
+    else if (max === g) h = 60 * ((b - r) / (max - min) + 2);
+    else h = 60 * ((r - g) / (max - min) + 4);
+  }
+  if (h < 0) h += 360;
+  if (s < 0.15) return l > 0.7 ? 'light gray' : 'gray';
+  let name;
+  if (h < 15 || h >= 345) name = 'red';
+  else if (h < 40) name = l < 0.5 ? 'brown' : 'orange';
+  else if (h < 65) name = 'yellow';
+  else if (h < 160) name = 'green';
+  else if (h < 195) name = 'teal';
+  else if (h < 250) name = l < 0.55 && s < 0.5 ? 'navy' : 'blue';
+  else if (h < 290) name = 'purple';
+  else name = 'pink';
+  return (l > 0.78 ? 'light ' : '') + name;
+}
+
+// Names for each color on the board, made unique when two sound the same.
+function colorNames(ids) {
+  const names = ids.map(id => colorName(state.colors[id]));
+  const seen = {};
+  names.forEach((name, i) => { (seen[name] ||= []).push(i); });
+  for (const idxs of Object.values(seen)) {
+    if (idxs.length < 2) continue;
+    idxs.forEach((i, k) => { names[i] = `${names[i]} #${k + 1}`; });
+  }
+  return names;
 }
 
 function swatch(cls, label, onclick, background, text) {
@@ -52,30 +103,32 @@ function renderPalette() {
   const pick = v => () => { state.selected = v; renderPalette(); };
   const sel = v => state.selected === v ? ' sel' : '';
   state.colors.forEach((color, i) => swatch('swatch' + sel(i), `Color ${i + 1}`, pick(i), color));
-  swatch('swatch eraser' + sel(-1), 'Eraser', pick(-1), null, '✕');
-  swatch('swatch eraser' + sel(CAT_TOOL), 'Place or remove a cat', pick(CAT_TOOL), null, '🐈‍⬛');
-}
-
-function cellContent(r, c) {
-  const k = key(r, c);
-  if (state.placed.has(k)) return { text: '🐈‍⬛', cls: '' };
-  if (state.solution && state.solution[r] === c && state.shown.has(k)) return { text: '🐱', cls: 'answer' };
-  return { text: '', cls: '' };
+  swatch('swatch tool' + sel(-1), 'Erase color', pick(-1), null, '⌫');
+  swatch('swatch tool' + sel(CAT_TOOL), 'Place or remove a cat', pick(CAT_TOOL), null, '🐈‍⬛');
+  swatch('swatch tool' + sel(X_TOOL), 'Place or remove an X', pick(X_TOOL), null, '✕');
 }
 
 function renderBoard() {
-  const { n, grid, colors } = state;
+  const { n, grid, colors, marks, solution } = state;
   boardEl.style.gridTemplateColumns = `repeat(${n}, 1fr)`;
   boardEl.innerHTML = '';
   for (let r = 0; r < n; r++) {
     for (let c = 0; c < n; c++) {
+      const k = key(r, c);
       const cell = document.createElement('div');
-      const { text, cls } = cellContent(r, c);
-      cell.className = 'cell ' + cls;
+      cell.className = 'cell';
+      if (state.focus.has(k)) cell.classList.add('focus');
+      if (state.fresh.has(k)) cell.classList.add('fresh');
       cell.dataset.r = r;
       cell.dataset.c = c;
       if (grid[r][c] >= 0) cell.style.background = colors[grid[r][c]];
-      cell.textContent = text;
+      if (marks[r][c] === CAT) cell.textContent = '🐈‍⬛';
+      else if (state.showAnswer && solution && solution[r] === c) {
+        cell.textContent = '🐱';
+        cell.classList.add('answer');
+      } else if (marks[r][c] === X) {
+        cell.innerHTML = '<span class="x">✕</span>';
+      }
       boardEl.appendChild(cell);
     }
   }
@@ -85,10 +138,11 @@ function render() { renderPalette(); renderBoard(); }
 
 function cellAt(x, y) {
   const el = document.elementFromPoint(x, y);
-  return el && el.classList.contains('cell') ? el : null;
+  const cell = el && el.closest('.cell');
+  return cell && boardEl.contains(cell) ? cell : null;
 }
 
-// Painting: tap or drag across cells. The cat tool toggles one cell per tap.
+// Painting: tap or drag across cells. The cat and X tools toggle one cell per tap.
 let painting = false;
 function paintAt(x, y) {
   const el = cellAt(x, y);
@@ -100,11 +154,13 @@ function paintAt(x, y) {
   renderBoard();
 }
 boardEl.addEventListener('pointerdown', e => {
-  if (state.selected === CAT_TOOL) {
+  if (state.selected === CAT_TOOL || state.selected === X_TOOL) {
     const el = cellAt(e.clientX, e.clientY);
     if (!el) return;
-    const k = key(+el.dataset.r, +el.dataset.c);
-    state.placed.has(k) ? state.placed.delete(k) : state.placed.add(k);
+    const r = +el.dataset.r, c = +el.dataset.c;
+    const mark = state.selected === CAT_TOOL ? CAT : X;
+    state.marks[r][c] = state.marks[r][c] === mark ? OPEN : mark;
+    state.hintKeys.delete(key(r, c));
     resetAnswer();
     renderBoard();
     return;
@@ -116,32 +172,40 @@ window.addEventListener('pointermove', e => { if (painting) paintAt(e.clientX, e
 window.addEventListener('pointerup', () => { painting = false; });
 window.addEventListener('pointercancel', () => { painting = false; });
 
+// The board as region ids 0..n-1 (renumbered in case palette colors were
+// skipped), or null with a status message when it isn't ready.
+function regionBoard() {
+  const { n, grid } = state;
+  if (grid.some(row => row.includes(-1))) return setStatus('Some cells are still blank. Paint them first.', true), null;
+  const ids = [...new Set(grid.flat())];
+  if (ids.length !== n) return setStatus(`A ${n}×${n} board needs exactly ${n} colors, but ${ids.length} are used.`, true), null;
+  return { ids, regions: grid.map(row => row.map(v => ids.indexOf(v))) };
+}
+
 // Works out the answer around your cats. The game only accepts correct cats,
 // so if they don't fit, a color was misread. Returns false and
 // sets a status message when it can't.
 function computeSolution() {
-  const { n, grid } = state;
-  if (grid.some(row => row.includes(-1))) return setStatus('Some cells are still blank. Paint them first.', true), false;
-  const used = new Set(grid.flat());
-  if (used.size !== n) return setStatus(`A ${n}×${n} board needs exactly ${n} colors, but ${used.size} are used.`, true), false;
-
-  // Renumber regions 0..n-1 in case some palette colors were skipped.
-  const ids = [...used];
-  const regionGrid = grid.map(row => row.map(v => ids.indexOf(v)));
+  const board = regionBoard();
+  if (!board) return false;
+  const { n, marks } = state;
 
   const fixed = new Array(n).fill(-1);
   let fixable = true;
-  for (const k of state.placed) {
-    const [r, c] = k.split(',').map(Number);
-    if (fixed[r] >= 0) fixable = false;
-    fixed[r] = c;
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      if (marks[r][c] !== CAT) continue;
+      if (fixed[r] >= 0) fixable = false;
+      fixed[r] = c;
+    }
   }
+  const hasCats = fixed.some(c => c >= 0);
 
-  const solutions = fixable ? solveMeowdoku(regionGrid, 2, fixed) : [];
+  const solutions = fixable ? solveMeowdoku(board.regions, 2, fixed) : [];
   if (!solutions.length) {
     state.solution = null;
     renderBoard();
-    const why = state.placed.size ? "Your cats don't fit this board, so a color was probably misread." : 'No solution.';
+    const why = hasCats ? "Your cats don't fit this board, so a color was probably misread." : 'No solution.';
     return setStatus(`${why} Double-check the colors.`, true), false;
   }
   state.solution = solutions[0];
@@ -149,30 +213,66 @@ function computeSolution() {
   return true;
 }
 
-function answerStatus(prefix) {
-  setStatus(state.unique ? prefix : `${prefix} This board has more than one answer though, so a color may be misread.`, !state.unique);
-}
-
 function solve() {
   if (!computeSolution()) return;
-  state.solution.forEach((c, r) => state.shown.add(key(r, c)));
+  clearHighlights();
+  state.showAnswer = true;
   renderBoard();
-  answerStatus('Solved! 😼');
+  const badXs = state.solution.filter((c, r) => state.marks[r][c] === X).length;
+  if (badXs) return setStatus(`Solved, but ${badXs === 1 ? 'one of your X\'s is' : `${badXs} of your X's are`} on a cat square.`, true);
+  setStatus(state.unique ? 'Solved! 😼' : 'Solved, but this board has more than one answer, so a color may be misread.', !state.unique);
 }
 
-// Reveal one cat, starting with the one in the smallest color region.
+function applyMarks(cells, mark) {
+  for (const [r, c] of cells || []) {
+    state.marks[r][c] = mark;
+    state.hintKeys.add(key(r, c));
+    state.fresh.add(key(r, c));
+  }
+}
+
+// One logical move per tap, easiest first: places a cat or rules squares out.
 function hint() {
-  if (!state.solution && !computeSolution()) return;
-  const { solution, grid } = state;
-  const regionSize = id => grid.flat().filter(v => v === id).length;
-  const remaining = solution
-    .map((c, r) => ({ r, c, k: key(r, c) }))
-    .filter(({ k }) => !state.placed.has(k) && !state.shown.has(k))
-    .sort((a, b) => regionSize(grid[a.r][a.c]) - regionSize(grid[b.r][b.c]));
-  if (!remaining.length) { renderBoard(); return answerStatus('That\'s every cat! 😼'); }
-  state.shown.add(remaining[0].k);
+  const board = regionBoard();
+  if (!board) return;
+  const names = colorNames(board.ids);
+  clearHighlights();
+  state.showAnswer = false;
+  const step = nextLogicalStep(board.regions, state.marks, id => names[id]);
+
+  if (step.done) {
+    renderBoard();
+    return setStatus('Every cat is placed. Board solved! 😼');
+  }
+  if (step.broken) {
+    renderBoard();
+    return setStatus(`Something doesn't add up: ${step.broken} Check the colors and your X's.`, true);
+  }
+  if (step.stuck) {
+    // No clean logic left: fall back to a cat straight from the answer.
+    if (!computeSolution()) return;
+    const r = state.solution.findIndex((c, row) => state.marks[row][c] !== CAT);
+    applyMarks([[r, state.solution[r]]], CAT);
+    renderBoard();
+    return setStatus("I couldn't find a clean logical move here, so this cat comes straight from the answer.");
+  }
+
+  applyMarks(step.xs, X);
+  applyMarks(step.cats, CAT);
+  for (const [r, c] of step.focus) state.focus.add(key(r, c));
   renderBoard();
-  answerStatus(`Here's one. ${remaining.length - 1} to go.`);
+  setStatus(step.text);
+}
+
+function resetHints() {
+  for (const k of state.hintKeys) {
+    const [r, c] = k.split(',').map(Number);
+    state.marks[r][c] = OPEN;
+  }
+  state.hintKeys.clear();
+  resetAnswer();
+  renderBoard();
+  setStatus('');
 }
 
 async function loadScreenshot(file) {
@@ -190,11 +290,17 @@ async function loadScreenshot(file) {
     state.grid = result.grid;
     state.colors = result.colors;
     state.selected = 0;
-    state.placed = new Set(result.cats.map(([r, c]) => key(r, c)));
+    state.marks = emptyMarks(result.n);
+    for (const [r, c] of result.xs) state.marks[r][c] = X;
+    for (const [r, c] of result.cats) state.marks[r][c] = CAT;
+    state.hintKeys.clear();
     resetAnswer();
     sizeEl.value = result.n;
     render();
-    const cats = result.cats.length ? ` with ${result.cats.length} cat${result.cats.length > 1 ? 's' : ''} already placed` : '';
+    const found = [];
+    if (result.cats.length) found.push(`${result.cats.length} cat${result.cats.length > 1 ? 's' : ''}`);
+    if (result.xs.length) found.push(`${result.xs.length} X${result.xs.length > 1 ? "'s" : ''}`);
+    const cats = found.length ? ` with ${found.join(' and ')} already placed` : '';
     setStatus(result.suspicious
       ? `Found a ${result.n}×${result.n} board${cats}, but two colors may have been mixed up. Check it, then hit Solve.`
       : `Found a ${result.n}×${result.n} board${cats}. Check it looks right, then hit Solve or Hint.`, result.suspicious);
@@ -213,7 +319,7 @@ sizeEl.onchange = () => { newBoard(+sizeEl.value); setStatus(''); };
 $('clear').onclick = () => { newBoard(state.n); setStatus(''); };
 $('solve').onclick = solve;
 $('hint').onclick = hint;
-$('hide').onclick = () => { state.shown.clear(); renderBoard(); setStatus(''); };
+$('hide').onclick = resetHints;
 $('file').onchange = e => { if (e.target.files[0]) loadScreenshot(e.target.files[0]); e.target.value = ''; };
 
 newBoard(9);

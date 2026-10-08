@@ -1,7 +1,7 @@
 // Reads a Meowdoku board out of a screenshot.
 // Input: ImageData-like { data, width, height }.
 // Output: { n, grid, colors, cats } where grid[r][c] is a region id and colors[id] is a hex string
-// and cats lists [row, col] of cats already placed,
+// and cats / xs list [row, col] of cats and X marks already placed,
 // or throws an Error with a human-readable message.
 
 function isCellPixel(r, g, b) {
@@ -92,13 +92,15 @@ function readBoard(img) {
 
   // Sample each cell. Placed cats cover the middle, so read the color from
   // the colored pixels across the whole cell (median ignores cat/X marks).
-  const samples = [], cats = [];
+  const samples = [], cats = [], xs = [];
+  // The game's red X (a wrong guess) is bright orange-red.
+  const isRedX = (R, G, B) => R > 200 && G < 130 && B < 100;
   for (let r = 0; r < n; r++) {
     for (let c = 0; c < n; c++) {
       const top = rowRuns[r].start, left = colRuns[c].start;
       const ch = rowRuns[r].len, cw = colRuns[c].len;
       const colored = [[], [], []];
-      let dark = 0, light = 0, center = 0;
+      let dark = 0, light = 0, red = 0, center = 0;
       for (let y = Math.round(top + ch * 0.08); y < top + ch * 0.92; y++) {
         for (let x = Math.round(left + cw * 0.08); x < left + cw * 0.92; x++) {
           const i = (y * w + x) * 4;
@@ -110,14 +112,17 @@ function readBoard(img) {
             const max = Math.max(R, G, B), min = Math.min(R, G, B);
             if (max < 70) dark++;
             else if (min > 200 && max - min < 30) light++;
+            if (isRedX(R, G, B)) red++;
           }
         }
       }
-      // Cat heads are black and white fur; white X marks have no black.
-      if (dark > center * 0.08 && dark + light > center * 0.3) cats.push([r, c]);
       if (!colored[0].length) throw new Error(`Couldn't read the color of row ${r + 1}, column ${c + 1}.`);
       const median = arr => { arr.sort((a, b) => a - b); return arr[arr.length >> 1]; };
       const rgb = colored.map(median);
+      // Cat heads are black and white fur; white X marks have no black.
+      if (dark > center * 0.08 && dark + light > center * 0.3) cats.push([r, c]);
+      else if (light > center * 0.3 && dark < center * 0.02) xs.push([r, c]);
+      else if (red > center * 0.1 && !isRedX(...rgb)) xs.push([r, c]);
       samples.push({ r, c, rgb, lab: rgbToLab(rgb) });
     }
   }
@@ -147,6 +152,7 @@ function readBoard(img) {
     grid,
     colors: groups.map(g => toHex(g.rgb)),
     cats,
+    xs,
     // A big final merge means two genuinely different colors got lumped together.
     suspicious: lastMerge > 12,
   };
