@@ -54,6 +54,7 @@
   .cell .x { color: #fff; font-weight: 900; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); }
   .cell.answer { box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.85); }
   .cell.focus { box-shadow: inset 0 0 0 3px var(--text); }
+  .cell.wrong { box-shadow: inset 0 0 0 4px #e0312b; }
   .cell.fresh .x { color: #ffd84d; }
   .cell.fresh { animation: pop 0.35s ease-out; }
   @keyframes pop { from { transform: scale(0.8); } to { transform: scale(1); } }
@@ -88,7 +89,7 @@
   <div class="card help">
     <b>Screenshot:</b> upload a board, fresh or half done. The size, colors, cats and X's are picked up automatically.<br>
     <b>Hint:</b> makes the next logical move, easiest first, and explains why. New X's show up in gold and the squares it's talking about get outlined. <b>Solve</b> just shows the answer.<br>
-    <b>Cats and X's:</b> use the 🐈‍⬛ and ✕ tools to place or remove them. Screenshots pick yours up automatically.<br>
+    <b>Cats and X's:</b> use the 🐈‍⬛ and ✕ tools to place or remove them. Screenshots pick yours up automatically. Any X sitting on a cat square gets caught and outlined red.<br>
     <b>Fix mistakes:</b> pick a color above, then tap or drag across cells to paint them.<br>
     <b>Manual:</b> choose a size, then paint every region yourself.
   </div>

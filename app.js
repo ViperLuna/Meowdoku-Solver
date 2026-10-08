@@ -10,6 +10,7 @@ const state = {
   hintKeys: new Set(),  // "r,c" of marks the Hint button added
   focus: new Set(),     // squares the latest hint is talking about
   fresh: new Set(),     // squares the latest hint just marked
+  wrong: new Set(),     // X's that sit on a cat square
   solution: null,       // solution[row] = col
   showAnswer: false,
 };
@@ -27,6 +28,7 @@ function setStatus(msg, bad = false) {
 function clearHighlights() {
   state.focus.clear();
   state.fresh.clear();
+  state.wrong.clear();
 }
 
 function resetAnswer() {
@@ -119,6 +121,7 @@ function renderBoard() {
       cell.className = 'cell';
       if (state.focus.has(k)) cell.classList.add('focus');
       if (state.fresh.has(k)) cell.classList.add('fresh');
+      if (state.wrong.has(k)) cell.classList.add('wrong');
       cell.dataset.r = r;
       cell.dataset.c = c;
       if (grid[r][c] >= 0) cell.style.background = colors[grid[r][c]];
@@ -213,13 +216,36 @@ function computeSolution() {
   return true;
 }
 
+// The game only checks cats, so a white X can be wrong. Check every X against
+// the answer (worked out from the colors and your cats) before anything else.
+// Wrong X's get removed here and outlined red. Returns a message, or ''.
+function checkXs() {
+  const { marks, n } = state;
+  if (!marks.flat().includes(X) || !computeSolution() || !state.unique) return '';
+  const bad = [];
+  for (let r = 0; r < n; r++) {
+    const c = state.solution[r];
+    if (marks[r][c] === X) bad.push([r, c]);
+  }
+  if (!bad.length) return '';
+  for (const [r, c] of bad) {
+    marks[r][c] = OPEN;
+    state.hintKeys.delete(key(r, c));
+    state.wrong.add(key(r, c));
+  }
+  const where = bad.map(([r, c]) => `row ${r + 1}, column ${c + 1}`).join(' and ');
+  return bad.length === 1
+    ? `Hold up: your X at ${where} is wrong. That's actually where a cat goes. I took it off here (red outline), so remove it in the game too.`
+    : `Hold up: your X's at ${where} are wrong. Those are cat squares. I took them off here (red outlines), so remove them in the game too.`;
+}
+
 function solve() {
   if (!computeSolution()) return;
   clearHighlights();
+  const xWarning = checkXs();
   state.showAnswer = true;
   renderBoard();
-  const badXs = state.solution.filter((c, r) => state.marks[r][c] === X).length;
-  if (badXs) return setStatus(`Solved, but ${badXs === 1 ? 'one of your X\'s is' : `${badXs} of your X's are`} on a cat square.`, true);
+  if (xWarning) return setStatus(xWarning, true);
   setStatus(state.unique ? 'Solved! 😼' : 'Solved, but this board has more than one answer, so a color may be misread.', !state.unique);
 }
 
@@ -238,6 +264,8 @@ function hint() {
   const names = colorNames(board.ids);
   clearHighlights();
   state.showAnswer = false;
+  const xWarning = checkXs();
+  if (xWarning) { renderBoard(); return setStatus(xWarning, true); }
   const step = nextLogicalStep(board.regions, state.marks, id => names[id]);
 
   if (step.done) {
@@ -296,7 +324,9 @@ async function loadScreenshot(file) {
     state.hintKeys.clear();
     resetAnswer();
     sizeEl.value = result.n;
+    const xWarning = checkXs();
     render();
+    if (xWarning) return setStatus(xWarning, true);
     const found = [];
     if (result.cats.length) found.push(`${result.cats.length} cat${result.cats.length > 1 ? 's' : ''}`);
     if (result.xs.length) found.push(`${result.xs.length} X${result.xs.length > 1 ? "'s" : ''}`);
